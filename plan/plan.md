@@ -44,26 +44,26 @@ hevc-vvc-lossless-image/
 │       ├── runner.py               # BenchmarkRunner
 │       │
 │       ├── image/
-│       │   ├── loader.py           # ImageLoader
-│       │   └── saver.py            # ImageSaver
+│       │   ├── ImageLoader.py      # ImageLoader
+│       │   └── ImageSaver.py       # ImageSaver
 │       │
 │       ├── tiling/
-│       │   ├── base.py             # Tiler (ABC)
-│       │   ├── raster.py           # RasterTiler
-│       │   ├── hilbert.py          # HilbertTiler
-│       │   ├── z_order.py          # ZOrderTiler
-│       │   └── assembler.py        # VideoAssembler
+│       │   ├── Tiler.py            # Tiler (ABC)
+│       │   ├── RasterTiler.py      # RasterTiler
+│       │   ├── HilbertTiler.py     # HilbertTiler
+│       │   ├── ZOrderTiler.py      # ZOrderTiler
+│       │   └── VideoAssembler.py   # VideoAssembler
 │       │
 │       ├── encoders/
-│       │   ├── base.py             # Encoder (ABC)
-│       │   ├── hevc.py             # HEVCEncoder
-│       │   ├── vvc.py              # VVCEncoder
-│       │   ├── jpeg2000.py         # JPEG2000Encoder
-│       │   └── jpegxl.py          # JPEGXLEncoder
+│       │   ├── Encoder.py          # Encoder (ABC)
+│       │   ├── HEVCEncoder.py      # HEVCEncoder
+│       │   ├── VVCEncoder.py       # VVCEncoder
+│       │   ├── JPEG2000Encoder.py  # JPEG2000Encoder
+│       │   └── JPEGXLEncoder.py    # JPEGXLEncoder
 │       │
 │       └── metrics/
 │           ├── compression.py      # CompressionMetrics, MetricsCalculator
-│           └── report.py           # ResultsExporter
+│           └── ResultsExporter.py  # ResultsExporter
 │
 ├── scripts/
 │   ├── run_benchmark.py            # CLI entry point
@@ -147,6 +147,26 @@ deactivate
 
 ---
 
+## Style guide
+
+Ustalenia nazewnictwa w projekcie:
+
+- **Klasy:** `PascalCase` (np. `HilbertTiler`, `CompressionPipeline`)
+- **Metody:** `camelCase` (np. `splitTiles()`, `runAll()`, `verifyLossless()`)
+- **Stałe:** prefiks `k` + `PascalCase` (np. `kDefaultTileWidth`, `kMaxWorkers`)
+- **Prywatne pola/metody:** prefiks `_` (np. `_tileWidth`, `_validateImage()`)
+
+Przykładowe mapowanie używanych nazw metod:
+
+- `split` → `splitTiles`
+- `merge` → `mergeTiles`
+- `frames_to_video` → `framesToVideo`
+- `video_to_frames` → `videoToFrames`
+- `verify_lossless` → `verifyLossless`
+- `run_all` → `runAll`
+
+---
+
 ## Diagram klas
 
 ```
@@ -186,8 +206,10 @@ deactivate
 ├─────────────────────────────┤
 │ # config: TilingConfig      │
 ├─────────────────────────────┤
-│ + split(image) → list[Tile] │
-│ + merge(tiles) → Image      │
+│ + splitTiles(image)         │
+│   → list[Tile]              │
+│ + mergeTiles(tiles)         │
+│   → Image                   │
 └───────────┬─────────────────┘
             │
    ┌────────┴──────────┬──────────────┐
@@ -196,16 +218,16 @@ RasterTiler       HilbertTiler   ZOrderTiler
                   ┌────────────────────────┐
                   │ - hc: HilbertCurve     │
                   │ - p: int               │
-                  │ + order(tiles)→list    │
-                  │ + inverse_order(...)   │
+                  │ + orderTiles(...)      │
+                  │ + inverseOrder(...)    │
                   └────────────────────────┘
 
 ┌─────────────────────────────┐
 │      VideoAssembler         │
 ├─────────────────────────────┤
-│ + frames_to_video(          │
+│ + framesToVideo(            │
 │     tiles, path) → Path     │
-│ + video_to_frames(          │
+│ + videoToFrames(            │
 │     path) → list[Tile]      │
 └─────────────────────────────┘
 
@@ -217,7 +239,7 @@ RasterTiler       HilbertTiler   ZOrderTiler
 ├─────────────────────────────┤
 │ + encode(src, dst) → Path   │
 │ + decode(src, dst) → Path   │
-│ + name() → str              │
+│ + getName() → str           │
 └────────────┬────────────────┘
              │
    ┌─────────┼──────────┬──────────────┐
@@ -245,10 +267,10 @@ HEVCEncoder VVCEncoder JPEG2000Encoder JPEGXLEncoder
 ┌─────────────────────────────┐
 │     MetricsCalculator       │
 ├─────────────────────────────┤
-│ + measure(original,         │
+│ + measureCompression(       │
 │   compressed,               │
 │   decoded) → CM             │
-│ + verify_lossless(a, b)→bool│
+│ + verifyLossless(a,b)→bool  │
 └─────────────────────────────┘
 
 ┌─────────────────────────────┐
@@ -259,11 +281,12 @@ HEVCEncoder VVCEncoder JPEG2000Encoder JPEGXLEncoder
 │ - encoder: Encoder          │
 │ - metrics: MetricsCalc      │
 ├─────────────────────────────┤
-│ + run(image) → CM           │
-│   [split → assemble →       │
+│ + runPipeline(image) → CM   │
+│   [splitTiles → assemble →  │
 │    encode → decode →        │
-│    disassemble → merge →    │
-│    verify → measure]        │
+│    disassemble → mergeTiles │
+│    → verifyLossless →       │
+│    measureCompression]      │
 └─────────────────────────────┘
 
 ┌─────────────────────────────┐
@@ -272,18 +295,18 @@ HEVCEncoder VVCEncoder JPEG2000Encoder JPEGXLEncoder
 │ - config: BenchmarkConfig   │
 │ - results: list[CM]         │
 ├─────────────────────────────┤
-│ + run_all() → DataFrame     │
-│ + build_pipeline(ec, tc)    │
+│ + runAll() → DataFrame      │
+│ + buildPipeline(ec, tc)     │
 │   → CompressionPipeline     │
 └─────────────────────────────┘
 
 ┌─────────────────────────────┐
 │     ResultsExporter         │
 ├─────────────────────────────┤
-│ + to_csv(df, path)          │
-│ + to_json(df, path)         │
-│ + plot_bpp_comparison(df)   │
-│ + plot_bpp_vs_tilesize(df)  │
+│ + toCsv(df, path)           │
+│ + toJson(df, path)          │
+│ + plotBppComparison(df)     │
+│ + plotBppVsTileSize(df)     │
 └─────────────────────────────┘
 ```
 
@@ -297,10 +320,10 @@ PNG obraz
    ▼ ImageLoader
 numpy array [H × W × C]
    │
-   ▼ HilbertTiler.split()
+   ▼ HilbertTiler.splitTiles()
 list[Tile]  (kafelki w porządku krzywej Hilberta)
    │
-   ▼ VideoAssembler.frames_to_video()
+   ▼ VideoAssembler.framesToVideo()
 frame_%04d.png → tmp/
    │
    ▼ HEVCEncoder.encode()  (ffmpeg -c:v libx265 lossless=1)
@@ -309,10 +332,10 @@ output.mkv
    ▼ HEVCEncoder.decode()  (ffmpeg → frame_%04d.png)
 list[Tile]  (klatki z wideo)
    │
-   ▼ HilbertTiler.merge()
+   ▼ HilbertTiler.mergeTiles()
 numpy array [H × W × C]  (rekonstrukcja)
    │
-   ▼ MetricsCalculator.measure() + verify_lossless()
+   ▼ MetricsCalculator.measureCompression() + verifyLossless()
 CompressionMetrics → BenchmarkRunner → DataFrame → CSV/wykresy
 ```
 
