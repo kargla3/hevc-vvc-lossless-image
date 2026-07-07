@@ -69,12 +69,6 @@ hevc-vvc-lossless-image/
 │   ├── run_benchmark.py            # CLI entry point
 │   └── generate_report.py
 │
-├── tests/
-│   ├── conftest.py
-│   ├── test_tiling.py
-│   ├── test_encoders.py
-│   └── test_metrics.py
-│
 ├── notebooks/
 │   └── analysis.ipynb
 │
@@ -137,9 +131,6 @@ source .venv/bin/activate        # Linux/macOS
 
 # Uruchom benchmark
 python -m lossless_bench run --config config.yaml
-
-# Uruchom testy
-pytest tests/
 
 # Deaktywuj po skończeniu
 deactivate

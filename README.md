@@ -47,13 +47,6 @@ pip install -r requirements.txt
 python -m lossless_bench run --config config.yaml
 ```
 
-### Uruchomienie testów
-
-# TODO
-```bash
-pytest tests/
-```
-
 ---
 
 ## Dokumentacja

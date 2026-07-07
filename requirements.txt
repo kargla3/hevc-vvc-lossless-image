@@ -11,7 +11,6 @@ pydantic
 tqdm
 click
 
-# Optional testing/linting tools (can be moved to requirements-dev.txt)
-pytest
+# Optional linting tools
 ruff
 black
