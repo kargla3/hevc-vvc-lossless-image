@@ -10,6 +10,7 @@ seaborn
 pydantic
 tqdm
 click
+pyyaml
 
 # Optional linting tools
 ruff
