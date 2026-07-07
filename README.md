@@ -25,9 +25,16 @@ cd hevc-vvc-lossless-image
 python -m venv .venv
 
 # 3. Aktywuj środowisko
-.venv\Scripts\Activate.ps1      # Windows PowerShell
-.venv\Scripts\activate.bat      # Windows cmd
-source .venv/bin/activate        # Linux / macOS
+
+# Windows PowerShell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.venv\Scripts\Activate.ps1
+
+# Windows cmd
+.venv\Scripts\activate.bat
+
+# Linux / macOS
+source .venv/bin/activate
 
 # 4. Zainstaluj zależności
 pip install -r requirements.txt
