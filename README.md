@@ -38,6 +38,9 @@ source .venv/bin/activate
 
 # 4. Zainstaluj zależności
 pip install -r requirements.txt
+
+# 5. Pobierz obrazy z datasetu
+python3 .\scripts\load_dataset.py
 ```
 
 ### Uruchomienie benchmarku
