@@ -60,6 +60,7 @@ temp/
 # -----------------------------
 results/
 data/output/
+data/input/clic-dataset/
 
 # Generated frame sequences / intermediates
 frames/
