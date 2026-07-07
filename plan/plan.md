@@ -117,7 +117,6 @@ pydantic
 tqdm
 click
 
-pytest
 ruff
 black
 ```
