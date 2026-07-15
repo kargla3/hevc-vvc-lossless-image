@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import os
 import shutil
+import subprocess
 
 import numpy as np
+from PIL import Image
 from hilbertcurve.hilbertcurve import HilbertCurve
 
 
@@ -149,3 +152,50 @@ def has_module(name: str) -> bool:
 	"""Czy modul Pythona jest importowalny."""
 
 	return importlib.util.find_spec(name) is not None
+
+
+def _run(cmd: list[str]) -> None:
+	"""Uruchamia polecenie, podnosi wyjatek z stderr przy bledzie."""
+
+	result = subprocess.run(cmd, capture_output=True, text=True)
+	if result.returncode != 0:
+		raise RuntimeError(f"Polecenie zawiodlo: {' '.join(cmd)}\n{result.stderr}")
+
+
+def write_frames(tiles: list[np.ndarray], frames_dir: str) -> None:
+	"""Zapisuje kafelki jako kolejne klatki PNG frame_00000.png..."""
+
+	for i, tile in enumerate(tiles):
+		Image.fromarray(tile).save(os.path.join(frames_dir, f"frame_{i:05d}.png"))
+
+
+def read_frames(frames_dir: str, n: int) -> list[np.ndarray]:
+	"""Wczytuje n klatek PNG w kolejnosci."""
+
+	return [
+		np.asarray(Image.open(os.path.join(frames_dir, f"frame_{i:05d}.png")))
+		for i in range(n)
+	]
+
+
+def encode_hevc(frames_dir: str, out_path: str, inter: bool) -> None:
+	"""Koduje sekwencje klatek PNG bezstratnie kodekiem HEVC (libx265)."""
+
+	params = "lossless=1:log-level=error"
+	if not inter:
+		params += ":keyint=1"
+	_run([
+		"ffmpeg", "-y", "-framerate", "1", "-start_number", "0",
+		"-i", os.path.join(frames_dir, "frame_%05d.png"),
+		"-c:v", "libx265", "-pix_fmt", "gbrp", "-x265-params", params,
+		out_path,
+	])
+
+
+def decode_hevc(video_path: str, frames_dir: str) -> None:
+	"""Dekoduje wideo HEVC z powrotem do klatek PNG."""
+
+	_run([
+		"ffmpeg", "-y", "-i", video_path, "-start_number", "0",
+		os.path.join(frames_dir, "frame_%05d.png"),
+	])
