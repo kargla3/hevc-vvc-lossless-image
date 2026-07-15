@@ -199,3 +199,15 @@ def decode_hevc(video_path: str, frames_dir: str) -> None:
 		"ffmpeg", "-y", "-i", video_path, "-start_number", "0",
 		os.path.join(frames_dir, "frame_%05d.png"),
 	])
+
+
+def encode_jpeg2000(img: np.ndarray, out_path: str) -> None:
+	"""Zapisuje obraz bezstratnie jako JPEG 2000 (odwracalna falka 5/3)."""
+
+	Image.fromarray(img).save(out_path, format="JPEG2000", irreversible=False)
+
+
+def decode_jpeg2000(path: str) -> np.ndarray:
+	"""Wczytuje obraz JPEG 2000 jako tablice NumPy."""
+
+	return np.asarray(Image.open(path))

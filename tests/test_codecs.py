@@ -29,3 +29,13 @@ def test_hevc_frames_lossless_roundtrip(inter):
         merged = utils.merge_tiles(back_tiles, rows, cols, tile)
         restored = utils.crop_to_shape(merged, img.shape)
         assert utils.verify_lossless(img, restored)
+
+
+def test_jpeg2000_lossless_roundtrip():
+    img = _small_rgb(seed=2, h=128, w=160)
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "a.jp2")
+        utils.encode_jpeg2000(img, p)
+        assert os.path.getsize(p) > 0
+        back = utils.decode_jpeg2000(p)
+        assert utils.verify_lossless(img, back)
