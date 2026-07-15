@@ -50,3 +50,27 @@ def test_jpegxl_lossless_roundtrip():
         assert os.path.getsize(p) > 0
         back = utils.decode_jpegxl(p)
         assert utils.verify_lossless(img, back)
+
+
+_VVC = utils.has_tool("EncoderAppStatic") and utils.has_tool("DecoderAppStatic")
+
+
+@pytest.mark.skipif(not _VVC, reason="brak VTM (EncoderAppStatic/DecoderAppStatic)")
+@pytest.mark.parametrize("inter", [True, False])
+def test_vvc_lossless_roundtrip(inter):
+    img = _small_rgb(seed=4)
+    tile = 256
+    rows, cols = utils.grid_shape(img.shape, tile)
+    tiles = utils.split_tiles(img, tile)
+    with tempfile.TemporaryDirectory() as d:
+        fin = os.path.join(d, "in"); os.makedirs(fin)
+        fout = os.path.join(d, "out"); os.makedirs(fout)
+        utils.write_frames(tiles, fin)
+        bitstream = os.path.join(d, "v.vvc")
+        utils.encode_vvc(fin, bitstream, tile, tile, len(tiles), inter=inter)
+        assert os.path.getsize(bitstream) > 0
+        utils.decode_vvc(bitstream, fout, tile, tile)
+        back_tiles = utils.read_frames(fout, len(tiles))
+        merged = utils.merge_tiles(back_tiles, rows, cols, tile)
+        restored = utils.crop_to_shape(merged, img.shape)
+        assert utils.verify_lossless(img, restored)

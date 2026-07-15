@@ -230,3 +230,141 @@ def decode_jpegxl(path: str) -> np.ndarray:
 
 	with open(path, "rb") as handle:
 		return imagecodecs.jpegxl_decode(handle.read())
+
+
+kVtmCfgDir = os.path.expanduser("~/tools/vtm/cfg")
+
+
+def _frames_to_yuv444(frames_dir: str, n_frames: int, yuv_path: str) -> None:
+	"""Laczy klatki PNG w jeden surowy strumien planarny YUV444 (kanaly R,G,B jako plaszczyzny)."""
+
+	with open(yuv_path, "wb") as out:
+		for i in range(n_frames):
+			frame = np.asarray(Image.open(os.path.join(frames_dir, f"frame_{i:05d}.png")))
+			out.write(frame.transpose(2, 0, 1).tobytes())  # 3 plaszczyzny H*W
+
+
+def _yuv444_to_frames(yuv_path: str, frames_dir: str, width: int, height: int) -> None:
+	"""Rozpakowuje surowy YUV444 z powrotem na klatki PNG."""
+
+	frame_bytes = 3 * width * height
+	with open(yuv_path, "rb") as handle:
+		data = handle.read()
+	n = len(data) // frame_bytes
+	for i in range(n):
+		chunk = data[i * frame_bytes:(i + 1) * frame_bytes]
+		planes = np.frombuffer(chunk, dtype=np.uint8).reshape(3, height, width)
+		frame = planes.transpose(1, 2, 0).copy()
+		Image.fromarray(frame).save(os.path.join(frames_dir, f"frame_{i:05d}.png"))
+
+
+def encode_vvc(frames_dir: str, out_path: str, width: int, height: int, n_frames: int, inter: bool) -> None:
+	"""Koduje sekwencje klatek bezstratnie kodekiem VVC (VTM) na planarnym YUV444.
+
+	Flagi lossless potwierdzone eksperymentalnie dla VTM 24.0:
+	- --CostMode=lossless: tryb bezstratny (QP'=0, tylko transform skip)
+	- --ChromaTS=1 --TransformSkip=1: wymagane dla lossless chroma (DualITree=0)
+	- --BDPCM=1: alternatywna sciezka lossless dla blokow z duzym gradientem
+	- --DualITree=0: wspolne drzewo partycji dla lumy i chromy (wymagane z ChromaTS)
+	- --InternalBitDepth=8: glebokosc wewnetrzna zgodna z 8-bit wejsciem
+	- --LFNST=0: Fix bugu VTM 24.0: LFNST=1+DualITree=0+ChromaTS+lossless powoduje
+	  assert 'transform skip should be enabled for LS' (IntraSearch.cpp:5264) gdy
+	  encoder wybierze LFNST dla CU → lfnstIdx!=0 → tsAllowed=false dla chroma, a
+	  BDPCM nie jest testowane dla chroma gdy lfnstIdx!=0 (linia 1628). Fix: LFNST=0.
+	- --Log2MaxTbSize=5: Fix wtorny: z LFNST=0 luma takze wymaga tsAllowed=true;
+	  Log2MaxTbSize=5 ogranicza max TU do 32x32 → tsAllowed=true zawsze.
+
+	inter=False (all-intra): encoder_intra_vtm.cfg, kazda klatka kodowana osobno
+	(enkoder obsługuje 1 klatkę przy IntraPeriod=1 z GOPSize=1); bitstreamy IDR_N_LP
+	konkatenowane; dekoder VTM akceptuje taki format.
+
+	inter=True (lowdelay): encoder_lowdelay_vtm.cfg z predykcja B-frame.
+	Dodatkowe flagi dla lossless inter-slices:
+	- --SBT=0: sub-block transform niekompatybilny z lossless TU split w InterSearch
+	- --CTUSize=64 --MaxBTNonISlice=64: ograniczenie rozmiaru bloku inter (unikniecie
+	  assert "Not performing the implicit TU split" w xEncodeInterResidualQT)
+	- --FastLocalDualTreeMode=0 --EncDbOpt=0: wylaczenie optymalizacji niekompatybilnych
+	"""
+
+	import tempfile as _tempfile
+
+	# Flagi wejscia - wspolne dla obu trybow
+	common_input = [
+		f"--SourceWidth={width}", f"--SourceHeight={height}",
+		"--InputChromaFormat=444", "--InputBitDepth=8",
+		"--FrameRate=1",
+	]
+	# Wspolne flagi lossless (dla obu trybow, w tym fix bugu LFNST+ChromaTS)
+	common_lossless = [
+		"--CostMode=lossless",
+		"--ChromaTS=1",
+		"--TransformSkip=1",
+		"--BDPCM=1",
+		"--DualITree=0",
+		"--InternalBitDepth=8",
+		"--LFNST=0",
+		"--Log2MaxTbSize=5",
+	]
+
+	if inter:
+		# Tryb lowdelay: predykcja inter-klatkowa (B-slices)
+		cfg = os.path.join(kVtmCfgDir, "encoder_lowdelay_vtm.cfg")
+		# Dodatkowe flagi dla lossless inter-slices w VTM 24.0
+		inter_extra = [
+			"--SBT=0",
+			"--CTUSize=64",
+			"--MaxBTNonISlice=64",
+			"--FastLocalDualTreeMode=0",
+			"--EncDbOpt=0",
+		]
+		yuv = out_path + ".in.yuv"
+		try:
+			_frames_to_yuv444(frames_dir, n_frames, yuv)
+			_run([
+				"EncoderAppStatic", "-c", cfg,
+				"-i", yuv, "-b", out_path, "-o", "/dev/null",
+				f"--FramesToBeEncoded={n_frames}",
+			] + common_input + common_lossless + inter_extra)
+		finally:
+			if os.path.exists(yuv):
+				os.remove(yuv)
+	else:
+		# Tryb all-intra: kazda klatka kodowana osobno (encoder_intra_vtm obsługuje 1 klatkę)
+		# Bitstreamy konkatenowane; dekoder VTM akceptuje sekwencje IDR_N_LP
+		cfg = os.path.join(kVtmCfgDir, "encoder_intra_vtm.cfg")
+		with open(out_path, "wb") as out_file:
+			for i in range(n_frames):
+				with _tempfile.NamedTemporaryFile(suffix=".yuv", delete=False) as tmp_yuv, \
+				     _tempfile.NamedTemporaryFile(suffix=".vvc", delete=False) as tmp_vvc:
+					yuv_path = tmp_yuv.name
+					vvc_path = tmp_vvc.name
+				try:
+					# Zapisz jedną klatkę jako YUV444
+					frame = np.asarray(Image.open(
+						os.path.join(frames_dir, f"frame_{i:05d}.png")
+					))
+					with open(yuv_path, "wb") as f:
+						f.write(frame.transpose(2, 0, 1).tobytes())
+					_run([
+						"EncoderAppStatic", "-c", cfg,
+						"-i", yuv_path, "-b", vvc_path, "-o", "/dev/null",
+						"--FramesToBeEncoded=1",
+					] + common_input + common_lossless)
+					with open(vvc_path, "rb") as f:
+						out_file.write(f.read())
+				finally:
+					for p in (yuv_path, vvc_path):
+						if os.path.exists(p):
+							os.remove(p)
+
+
+def decode_vvc(bitstream: str, frames_dir: str, width: int, height: int) -> None:
+	"""Dekoduje strumien VVC (VTM) do klatek PNG."""
+
+	yuv = bitstream + ".out.yuv"
+	try:
+		_run(["DecoderAppStatic", "-b", bitstream, "-o", yuv])
+		_yuv444_to_frames(yuv, frames_dir, width, height)
+	finally:
+		if os.path.exists(yuv):
+			os.remove(yuv)
