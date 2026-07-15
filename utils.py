@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from hilbertcurve.hilbertcurve import HilbertCurve
 
 
 TILE = 256
@@ -58,3 +59,61 @@ def crop_to_shape(img: np.ndarray, shape: tuple) -> np.ndarray:
 	"""Przycina obraz z paddingiem do oryginalnego ksztaltu."""
 
 	return img[: shape[0], : shape[1]]
+
+
+def raster_order(rows: int, cols: int) -> list[int]:
+	"""Kolejnosc rastrowa (row-major) — tozsamosc."""
+
+	return list(range(rows * cols))
+
+
+def hilbert_order(rows: int, cols: int) -> list[int]:
+	"""Kolejnosc kafelkow wg 2D krzywej Hilberta (indeksy row-major)."""
+
+	side = max(rows, cols)
+	p = max(1, math.ceil(math.log2(side))) if side > 1 else 1
+	hilbert = HilbertCurve(p, 2)
+	seq: list[int] = []
+	for distance in range(2 ** (2 * p)):
+		x, y = hilbert.point_from_distance(distance)  # x=kolumna, y=wiersz
+		if y < rows and x < cols:
+			seq.append(y * cols + x)
+	return seq
+
+
+def zorder_order(rows: int, cols: int) -> list[int]:
+	"""Kolejnosc kafelkow wg krzywej Z-order (indeksy row-major)."""
+
+	def interleave(r: int, c: int) -> int:
+		bits = max(r.bit_length(), c.bit_length())
+		z = 0
+		for i in range(bits):
+			z |= ((c >> i) & 1) << (2 * i)
+			z |= ((r >> i) & 1) << (2 * i + 1)
+		return z
+
+	indexed = [(r * cols + c, interleave(r, c)) for r in range(rows) for c in range(cols)]
+	indexed.sort(key=lambda pair: pair[1])
+	return [row_major for row_major, _ in indexed]
+
+
+def reorder(items: list, order: list[int]) -> list:
+	"""Ustawia elementy w kolejnosci zadanej przez `order`."""
+
+	return [items[i] for i in order]
+
+
+def unreorder(seq: list, order: list[int]) -> list:
+	"""Odwraca `reorder`: sekwencja wg krzywej -> kolejnosc row-major."""
+
+	restored: list = [None] * len(order)
+	for seq_pos, row_major in enumerate(order):
+		restored[row_major] = seq[seq_pos]
+	return restored
+
+
+ORDERS = {
+	"raster": raster_order,
+	"hilbert": hilbert_order,
+	"zorder": zorder_order,
+}
