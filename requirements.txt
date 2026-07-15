@@ -1,18 +1,7 @@
-# Core dependencies
-pillow
 numpy
+pillow
 hilbertcurve
-glymur
-imagecodecs
 pandas
 matplotlib
-seaborn
-pydantic
-tqdm
-click
-pyyaml
-
-# Optional linting tools
-ruff
-black
-kagglehub
+imagecodecs
+pytest
