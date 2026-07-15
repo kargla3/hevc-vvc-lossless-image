@@ -196,7 +196,7 @@ def decode_hevc(video_path: str, frames_dir: str) -> None:
 	"""Dekoduje wideo HEVC z powrotem do klatek PNG."""
 
 	_run([
-		"ffmpeg", "-y", "-i", video_path, "-start_number", "0",
+		"ffmpeg", "-y", "-i", video_path, "-start_number", "0", "-pix_fmt", "rgb24",
 		os.path.join(frames_dir, "frame_%05d.png"),
 	])
 

@@ -129,7 +129,8 @@ def main() -> None:
 	available = {m: c for m, c in EXPERIMENTS.items() if _mode_available(c)}
 	for m in EXPERIMENTS:
 		if m not in available:
-			print(f"OSTRZEZENIE: tryb '{m}' pominiety (brak narzedzia).")
+			reason = "SKIP_VVC" if EXPERIMENTS[m]["codec"] == "vvc" and os.environ.get("SKIP_VVC") else "brak narzedzia"
+			print(f"OSTRZEZENIE: tryb '{m}' pominiety ({reason}).")
 
 	with open(kCsvPath, "w", newline="", encoding="utf-8") as handle:
 		writer = csv.DictWriter(handle, fieldnames=kCsvFields)
