@@ -26,6 +26,7 @@ sprawdzenie tego.
 
 **W zakresie:**
 - Przygotowanie zestawu obrazów: kilka naturalnych (ze zdjęć w `photos/`) + kilka syntetycznych
+- Instalacja/udostępnienie narzędzi VVC (`vvencapp`/`vvdecapp`) i JPEG XL (`cjxl`/`djxl`)
 - Benchmark kompresji bezstratnej w wielu trybach (cały obraz vs. kafelki w różnych porządkach)
 - Porównanie z JPEG 2000 i JPEG XL
 - Metryki: BPP, współczynnik kompresji, czasy kodowania/dekodowania, weryfikacja bezstratności
@@ -46,9 +47,10 @@ sprawdzenie tego.
   tych pikseli, nie porównuje jakości względem sceny rzeczywistej.
 - **Środowisko:** Python 3.10, Linux. ffmpeg 4.4 z libx265 (HEVC) i libopenjpeg (JPEG 2000)
   są dostępne.
-- **Narzędzia opcjonalne** (wykrywane automatycznie, tryb pomijany gdy brak):
-  - VVC: `vvencapp` / `vvdecapp` — obecnie niezainstalowane
-  - JPEG XL: `cjxl` / `djxl` — obecnie niezainstalowane
+- **Narzędzia do doinstalowania w ramach implementacji** (kod nadal wykrywa je automatycznie i
+  pomija tryb, jeśli mimo to brak — dla przenośności na inne maszyny):
+  - VVC: `vvencapp` / `vvdecapp`
+  - JPEG XL: `cjxl` / `djxl`
 - **Prostota ponad wszystko:** brak klas, pakietów, `src/`. Zwykłe funkcje w kilku skryptach.
 
 ---
@@ -103,9 +105,8 @@ python report.py
 ### `generate_images.py`
 Przygotowuje katalog `data/` z obrazami PNG (bezstratny format pośredni).
 
-- **Obrazy naturalne:** dekoduje wybrane JPG z `photos/` do PNG. Aby czas benchmarku był
-  rozsądny, można przyciąć/przeskalować do ~5000×5000 (do ustalenia w implementacji — domyślnie
-  bierzemy pełny rozmiar, bo prowadzący sugeruje duże obrazy). Wybieramy 2–3 zdjęcia.
+- **Obrazy naturalne:** dekoduje wybrane JPG z `photos/` do PNG w **pełnym rozmiarze**
+  (~4000×6000, bez przycinania/skalowania — prowadzący sugeruje duże obrazy). Wybieramy 2–3 zdjęcia.
 - **Obrazy syntetyczne** (generowane kodem, rozmiar ~5000×5000 RGB):
   - `synth_gradient` — płynny gradient (łatwy do predykcji przestrzennej)
   - `synth_noise` — szum losowy (nieściśliwy, przypadek pesymistyczny)
