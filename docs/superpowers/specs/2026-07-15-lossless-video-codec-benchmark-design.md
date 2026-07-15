@@ -26,7 +26,7 @@ sprawdzenie tego.
 
 **W zakresie:**
 - Przygotowanie zestawu obrazów: kilka naturalnych (ze zdjęć w `photos/`) + kilka syntetycznych
-- Instalacja/udostępnienie narzędzi VVC (`vvencapp`/`vvdecapp`) i JPEG XL (`cjxl`/`djxl`)
+- Instalacja/udostępnienie narzędzi VVC (VTM: `EncoderAppStatic`/`DecoderAppStatic`) i JPEG XL (imagecodecs)
 - Benchmark kompresji bezstratnej w wielu trybach (cały obraz vs. kafelki w różnych porządkach)
 - Porównanie z JPEG 2000 i JPEG XL
 - Metryki: BPP, współczynnik kompresji, czasy kodowania/dekodowania, weryfikacja bezstratności
@@ -49,9 +49,18 @@ sprawdzenie tego.
   są dostępne.
 - **Narzędzia do doinstalowania w ramach implementacji** (kod nadal wykrywa je automatycznie i
   pomija tryb, jeśli mimo to brak — dla przenośności na inne maszyny):
-  - VVC: `vvencapp` / `vvdecapp`
-  - JPEG XL: `cjxl` / `djxl`
+  - VVC: **VTM** (VVC Test Model — oprogramowanie referencyjne JVET, licencja BSD-3-Clause-Clear),
+    binaria `EncoderAppStatic` / `DecoderAppStatic`. **Uwaga:** zoptymalizowany enkoder `vvenc`
+    (Fraunhofer) **nie** obsługuje prawdziwie bezstratnego kodowania (`lossless` zahardkodowane na
+    `false` w źródłach, flaga `--CostMode lossless` zmienia tylko funkcję kosztu RD → błędy ±1 LSB)
+    ani wejścia YUV444. Dlatego do bezstratnego VVC używamy VTM (transquant bypass + YUV444). VTM
+    jest znacznie wolniejszy — akceptowalne dla benchmarku offline.
+  - JPEG XL: pakiet `imagecodecs` (patrz odchylenie niżej).
 - **Prostota ponad wszystko:** brak klas, pakietów, `src/`. Zwykłe funkcje w kilku skryptach.
+
+**Odchylenie od pierwotnego spec:** (1) JPEG XL realizujemy przez `imagecodecs` (pip) zamiast CLI
+`cjxl`/`djxl` — brak `cjxl` w systemie, imagecodecs daje bezstratny JXL bez budowania. (2) VVC
+realizujemy przez VTM zamiast vvenc — vvenc nie potrafi prawdziwie bezstratnie (patrz wyżej).
 
 ---
 
@@ -130,10 +139,11 @@ Wspólne funkcje (bez klas):
   - `zorder_order(rows, cols)` → lista indeksów (bit-interleaving)
 - **Kodeki** (każdy zwraca ścieżkę pliku skompresowanego + czasy):
   - `encode_hevc(frames_dir, out_path, inter: bool)` / `decode_hevc(...)`
-  - `encode_vvc(...)` / `decode_vvc(...)` (opcjonalny)
+  - `encode_vvc(...)` / `decode_vvc(...)` (VTM, opcjonalny)
   - `encode_jpeg2000(png_path, out_path)` / `decode_jpeg2000(...)` (Pillow)
-  - `encode_jpegxl(png_path, out_path)` / `decode_jpegxl(...)` (cjxl/djxl, opcjonalny)
-- **Wykrywanie narzędzi:** `has_tool(name)` — sprawdza dostępność `vvencapp`, `cjxl` itd.
+  - `encode_jpegxl(png_path, out_path)` / `decode_jpegxl(...)` (imagecodecs, opcjonalny)
+- **Wykrywanie narzędzi:** `has_tool(name)` — sprawdza dostępność `EncoderAppStatic` itd.;
+  `has_module(name)` — importowalność (np. `imagecodecs`).
 - **Metryki:** `bits_per_pixel(...)`, `compression_ratio(...)`, `verify_lossless(a, b)`
 
 ### `benchmark.py`
@@ -169,7 +179,7 @@ Rozmiar kafelka: **256×256** (najbliższa potęga 2 do sugerowanych 250×250; w
 | `vvc_full`     | VVC (*)    | brak    | —               | cały obraz                     |
 | `vvc_hilbert`  | VVC (*)    | 256²    | tak             | krzywa Hilberta                |
 | `jpeg2000`     | JPEG 2000  | brak    | —               | Pillow / libopenjpeg           |
-| `jpegxl`       | JPEG XL(*) | brak    | —               | cjxl (effort domyślny)         |
+| `jpegxl`       | JPEG XL(*) | brak    | —               | imagecodecs (lossless)         |
 
 (*) Pomijane automatycznie, gdy narzędzie niedostępne.
 
@@ -196,7 +206,7 @@ Rozmiar kafelka: **256×256** (najbliższa potęga 2 do sugerowanych 250×250; w
 
 ## Obsługa błędów
 
-- **Brak narzędzia** (vvenc/cjxl): wykryte na starcie, tryb pomijany z ostrzeżeniem — benchmark
+- **Brak narzędzia** (VTM/imagecodecs): wykryte na starcie, tryb pomijany z ostrzeżeniem — benchmark
   kontynuuje. Nie przerywamy całości.
 - **Weryfikacja lossless nie przechodzi:** zapisujemy wiersz z `lossless_ok=False` (nie
   wyrzucamy — to jest wynik wart odnotowania), logujemy ostrzeżenie.
@@ -231,8 +241,8 @@ matplotlib
 pytest
 ```
 
-Narzędzia systemowe (poza pip): `ffmpeg` (z libx265, libopenjpeg). Opcjonalnie `vvencapp`/
-`vvdecapp` oraz `cjxl`/`djxl`.
+Narzędzia systemowe (poza pip): `ffmpeg` (z libx265, libopenjpeg). Opcjonalnie VTM
+(`EncoderAppStatic`/`DecoderAppStatic`, budowane ze źródeł) dla VVC. JPEG XL przez `imagecodecs`.
 
 ---
 

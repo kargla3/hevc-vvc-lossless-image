@@ -4,9 +4,9 @@
 
 **Goal:** Zbudować prosty benchmark porównujący bezstratną kompresję dużych obrazów kodekami wideo (HEVC, VVC) w różnych trybach kafelkowania (raster/Hilbert/Z-order) z kompresorami obrazów (JPEG 2000, JPEG XL).
 
-**Architecture:** Cztery proste skrypty Pythona bez klas i pakietów. `utils.py` zawiera wszystkie funkcje pomocnicze (tiling, porządki krzywych, wywołania kodeków, metryki). `generate_images.py` przygotowuje obrazy, `benchmark.py` wykonuje macierz eksperymentów do CSV, `report.py` rysuje wykresy. Kodeki wideo działają na sekwencji klatek-kafelków przez ffmpeg/vvencapp; JPEG 2000 przez Pillow, JPEG XL przez imagecodecs.
+**Architecture:** Cztery proste skrypty Pythona bez klas i pakietów. `utils.py` zawiera wszystkie funkcje pomocnicze (tiling, porządki krzywych, wywołania kodeków, metryki). `generate_images.py` przygotowuje obrazy, `benchmark.py` wykonuje macierz eksperymentów do CSV, `report.py` rysuje wykresy. Kodeki wideo działają na sekwencji klatek-kafelków przez ffmpeg (HEVC) i VTM (VVC); JPEG 2000 przez Pillow, JPEG XL przez imagecodecs.
 
-**Tech Stack:** Python 3.10, numpy, Pillow, hilbertcurve, pandas, matplotlib, imagecodecs (JPEG XL), pytest. Narzędzia systemowe: ffmpeg+libx265 (HEVC), libopenjpeg (JPEG 2000 przez Pillow), vvencapp/vvdecapp (VVC, budowane ze źródeł).
+**Tech Stack:** Python 3.10, numpy, Pillow, hilbertcurve, pandas, matplotlib, imagecodecs (JPEG XL), pytest. Narzędzia systemowe: ffmpeg+libx265 (HEVC), libopenjpeg (JPEG 2000 przez Pillow), VTM `EncoderAppStatic`/`DecoderAppStatic` (VVC, budowane ze źródeł).
 
 ## Global Constraints
 
@@ -720,7 +720,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 8: VVC — budowa vvenc/vvdec i wrapper w `utils.py`
+### Task 8: VVC — budowa VTM i wrapper w `utils.py`
 
 **Files:**
 - Modify: `utils.py`
@@ -730,43 +730,43 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Produces:
   - `encode_vvc(frames_dir: str, out_path: str, width: int, height: int, n_frames: int, inter: bool) -> None`
   - `decode_vvc(bitstream: str, frames_dir: str, width: int, height: int) -> None`
-  - Dostępność: `has_tool("vvencapp") and has_tool("vvdecapp")`.
+  - Dostępność: `has_tool("EncoderAppStatic") and has_tool("DecoderAppStatic")`.
   - RGB pakowane jako planarny YUV444 8-bit (kanały R,G,B → 3 płaszczyzny) w surowym `.yuv`; brak konwersji koloru → bezstratność. Klatki łączone w jeden strumień YUV w kolejności sekwencji.
 
-**Uwaga:** VVC jest jedynym narzędziem budowanym ze źródeł i ma niepewne flagi trybu bezstratnego. Krok 1 to research (`--help`), by potwierdzić dokładne nazwy opcji przed finalizacją wrappera. Integracyjny test lossless jest ostatecznym wyrocznikiem poprawności.
+**Kontekst — dlaczego VTM, nie vvenc:** Wcześniejsza próba użyła `vvenc` (zoptymalizowanego enkodera Fraunhofera). Ustalono empirycznie i w źródłach (`EncCu.cpp`: `const bool lossless = false;`), że vvenc **nie** obsługuje prawdziwie bezstratnego kodowania (flaga `--CostMode lossless` zmienia tylko funkcję kosztu RD → błędy ±1 LSB) ani wejścia YUV444. Dlatego używamy **VTM** (VVC Test Model — oprogramowanie referencyjne JVET, licencja BSD-3-Clause-Clear), które wspiera transquant bypass (prawdziwy lossless) i YUV444. VTM jest znacznie wolniejszy — akceptowalne dla benchmarku offline.
 
-- [ ] **Step 1: Zbuduj vvenc i vvdec**
+**Uwaga:** dokładne flagi trybu bezstratnego VTM potwierdź przez `--help`/dokumentację (Step 2). Integracyjny test lossless jest ostatecznym wyrocznikiem poprawności. Jeśli w `~/tools` zostały artefakty vvenc/vvdec z poprzedniej próby, można je zignorować lub usunąć — nie są używane.
+
+- [ ] **Step 1: Zbuduj VTM**
 
 Run:
 ```bash
 mkdir -p ~/tools && cd ~/tools
-git clone --depth 1 https://github.com/fraunhoferhhi/vvenc.git
-cd vvenc && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-cd ~/tools
-git clone --depth 1 https://github.com/fraunhoferhhi/vvdec.git
-cd vvdec && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+git clone --depth 1 https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM.git vtm
+cd vtm && mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)
 ```
-Expected: powstają `~/tools/vvenc/bin/release-static/vvencapp` i `~/tools/vvdec/bin/release-static/vvdecapp` (dokładna ścieżka `bin/…` może się różnić — znajdź: `find ~/tools -name 'vvencapp' -o -name 'vvdecapp'`).
+Expected: powstają binaria `EncoderAppStatic` i `DecoderAppStatic` (znajdź: `find ~/tools/vtm -name 'EncoderAppStatic' -o -name 'DecoderAppStatic'`; zwykle w `~/tools/vtm/bin/`). Pliki konfiguracyjne enkodera są w `~/tools/vtm/cfg/` (m.in. `encoder_intra_vtm.cfg`, `encoder_lowdelay_vtm.cfg`).
 
-- [ ] **Step 2: Dodaj binaria do PATH i potwierdź opcje**
+- [ ] **Step 2: Dodaj binaria do PATH i potwierdź opcje lossless**
 
 Run:
 ```bash
-export PATH="$(dirname $(find ~/tools/vvenc -name vvencapp | head -1)):$(dirname $(find ~/tools/vvdec -name vvdecapp | head -1)):$PATH"
-vvencapp --help 2>&1 | grep -iE "lossless|qp|format|size|framerate|input|preset"
-vvdecapp --help 2>&1 | grep -iE "output|bitstream|input"
+export PATH="$(dirname $(find ~/tools/vtm -name EncoderAppStatic | head -1)):$PATH"
+EncoderAppStatic --help 2>&1 | grep -iE "CostMode|Lossless|TransquantBypass|InputChromaFormat|InputBitDepth|SourceWidth|SourceHeight|FramesToBeEncoded|IntraPeriod"
+ls ~/tools/vtm/cfg/ | grep -iE "intra|lowdelay|randomaccess"
 ```
-Expected: potwierdź nazwy opcji: rozmiar wejścia (`-s WxH`), format chroma 4:4:4, bitdepth 8, tryb bezstratny (spodziewane `--qp 0` + tryb transquant-bypass, lub flaga typu `--lossless`). Zanotuj dokładne flagi — wstaw je w Step 4. Dodaj eksport PATH do `~/.bashrc`, by narzędzia były trwale widoczne.
+Expected: potwierdź nazwy opcji: `--SourceWidth`/`--SourceHeight`, `--InputChromaFormat=444`, `--InputBitDepth=8`, tryb bezstratny (spodziewane `--CostMode=lossless`, ewentualnie `--TransquantBypassEnable=1`). Zanotuj dokładne flagi i ścieżki cfg — wstaw je w Step 4. Dodaj eksport PATH do `~/.bashrc`, by narzędzia były trwale widoczne (uwzględnij katalog cfg jeśli wrapper go potrzebuje — patrz `kVtmCfgDir` niżej).
 
 - [ ] **Step 3: Napisz failujący test integracyjny**
 
 Dopisz do `tests/test_codecs.py`:
 
 ```python
-_VVC = utils.has_tool("vvencapp") and utils.has_tool("vvdecapp")
+_VVC = utils.has_tool("EncoderAppStatic") and utils.has_tool("DecoderAppStatic")
 
 
-@pytest.mark.skipif(not _VVC, reason="brak vvencapp/vvdecapp")
+@pytest.mark.skipif(not _VVC, reason="brak VTM (EncoderAppStatic/DecoderAppStatic)")
 @pytest.mark.parametrize("inter", [True, False])
 def test_vvc_lossless_roundtrip(inter):
     img = _small_rgb(seed=4)
@@ -792,9 +792,12 @@ def test_vvc_lossless_roundtrip(inter):
 Run: `python3 -m pytest tests/test_codecs.py -v -k vvc`
 Expected: FAIL (brak `utils.encode_vvc`).
 
-Dopisz do `utils.py` (podstaw dokładne flagi bezstratności potwierdzone w Step 2 w miejscu `# LOSSLESS FLAGS`):
+Dopisz do `utils.py`. VTM wspiera YUV444, więc pakujemy 3 kanały RGB w jeden strumień YUV444 (helpery `_frames_to_yuv444`/`_yuv444_to_frames`). Ustaw `kVtmCfgDir` na katalog cfg VTM (znaleziony w Step 1) i podstaw dokładne flagi lossless potwierdzone w Step 2 w miejscu `# LOSSLESS FLAGS`:
 
 ```python
+kVtmCfgDir = os.path.expanduser("~/tools/vtm/cfg")
+
+
 def _frames_to_yuv444(frames_dir: str, n_frames: int, yuv_path: str) -> None:
 	"""Laczy klatki PNG w jeden surowy strumien planarny YUV444 (kanaly R,G,B jako plaszczyzny)."""
 
@@ -819,18 +822,20 @@ def _yuv444_to_frames(yuv_path: str, frames_dir: str, width: int, height: int) -
 
 
 def encode_vvc(frames_dir: str, out_path: str, width: int, height: int, n_frames: int, inter: bool) -> None:
-	"""Koduje sekwencje klatek bezstratnie kodekiem VVC (vvencapp) na planarnym YUV444."""
+	"""Koduje sekwencje klatek bezstratnie kodekiem VVC (VTM) na planarnym YUV444."""
 
 	yuv = out_path + ".in.yuv"
+	cfg = os.path.join(kVtmCfgDir, "encoder_lowdelay_vtm.cfg" if inter else "encoder_intra_vtm.cfg")
 	try:
 		_frames_to_yuv444(frames_dir, n_frames, yuv)
-		gop = ["--gopsize", "1", "--intraperiod", "1"] if not inter else []
-		# LOSSLESS FLAGS: potwierdzone w Step 2 (spodziewane: --qp 0 + transquant bypass)
+		# LOSSLESS FLAGS: potwierdzone w Step 2 (spodziewane: --CostMode=lossless)
 		_run([
-			"vvencapp", "-i", yuv, "-s", f"{width}x{height}",
-			"--inputbitdepth", "8", "--format", "yuv444",
-			"--qp", "0", "--preset", "medium",
-			*gop, "-o", out_path,
+			"EncoderAppStatic", "-c", cfg,
+			"-i", yuv, "-b", out_path, "-o", "/dev/null",
+			f"--SourceWidth={width}", f"--SourceHeight={height}",
+			"--InputChromaFormat=444", "--InputBitDepth=8",
+			"--FrameRate=1", f"--FramesToBeEncoded={n_frames}",
+			"--CostMode=lossless",
 		])
 	finally:
 		if os.path.exists(yuv):
@@ -838,11 +843,11 @@ def encode_vvc(frames_dir: str, out_path: str, width: int, height: int, n_frames
 
 
 def decode_vvc(bitstream: str, frames_dir: str, width: int, height: int) -> None:
-	"""Dekoduje strumien VVC do klatek PNG."""
+	"""Dekoduje strumien VVC (VTM) do klatek PNG."""
 
 	yuv = bitstream + ".out.yuv"
 	try:
-		_run(["vvdecapp", "-b", bitstream, "-o", yuv])
+		_run(["DecoderAppStatic", "-b", bitstream, "-o", yuv])
 		_yuv444_to_frames(yuv, frames_dir, width, height)
 	finally:
 		if os.path.exists(yuv):
@@ -852,13 +857,13 @@ def decode_vvc(bitstream: str, frames_dir: str, width: int, height: int) -> None
 - [ ] **Step 5: Uruchom test — dostrój flagi aż przejdzie**
 
 Run: `python3 -m pytest tests/test_codecs.py -v -k vvc`
-Expected: PASS. Jeśli lossless nie przechodzi, popraw `# LOSSLESS FLAGS` i argumenty (`--format`/`--inputbitdepth`/rozmiar) wg `vvencapp --help` z Step 2, aż round-trip będzie bit-exact. Jeśli po rozsądnych próbach VVC nadal nie daje się zbudować/uruchomić bezstratnie, zanotuj to i pozostaw tryb jako pomijany (detekcja `has_tool` już to obsługuje) — benchmark zadziała bez VVC.
+Expected: PASS (bit-exact) dla `inter=True` i `inter=False`. Jeśli lossless nie przechodzi, popraw `# LOSSLESS FLAGS` (np. dodaj `--TransquantBypassEnable=1 --CUTransquantBypassFlagForce=1`) oraz argumenty (cfg, chroma, bitdepth) wg `--help` z Step 2, aż round-trip będzie bit-exact. VTM ma pełny tryb bezstratny, więc lossless jest osiągalny — w razie uporczywych problemów zgłoś jako BLOCKED z dokładnym opisem prób.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add utils.py tests/test_codecs.py
-git commit -m "Dodaje kodek VVC (vvenc/vvdec) na planarnym YUV444
+git commit -m "Dodaje kodek VVC (VTM) na planarnym YUV444
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -1040,7 +1045,7 @@ def _mode_available(cfg: dict) -> bool:
 	if codec == "hevc":
 		return utils.has_tool("ffmpeg")
 	if codec == "vvc":
-		return utils.has_tool("vvencapp") and utils.has_tool("vvdecapp")
+		return utils.has_tool("EncoderAppStatic") and utils.has_tool("DecoderAppStatic")
 	if codec == "jpeg2000":
 		return True  # Pillow + libopenjpeg
 	if codec == "jpegxl":
@@ -1317,7 +1322,7 @@ Opis tematu i architektura: patrz [CLAUDE.md](CLAUDE.md) oraz
 
 - Python 3.10+
 - ffmpeg z libx265 i libopenjpeg (w PATH)
-- Opcjonalnie: vvencapp/vvdecapp (VVC) zbudowane ze źródeł
+- Opcjonalnie: VTM (EncoderAppStatic/DecoderAppStatic) dla VVC, zbudowane ze źródeł
 - Zależności Pythona: `pip install -r requirements.txt`
 
 ## Uruchomienie
@@ -1335,7 +1340,7 @@ python report.py            # krok 3: wykresy -> results/*.png
 python -m pytest -v
 ```
 
-Testy kodeków wymagają ffmpeg; testy VVC są pomijane, gdy brak vvencapp/vvdecapp.
+Testy kodeków wymagają ffmpeg; testy VVC są pomijane, gdy brak VTM (EncoderAppStatic/DecoderAppStatic).
 
 ## Tryby eksperymentów
 
