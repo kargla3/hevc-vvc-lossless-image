@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import math
+import shutil
 
 import numpy as np
 from hilbertcurve.hilbertcurve import HilbertCurve
@@ -117,3 +119,33 @@ ORDERS = {
 	"hilbert": hilbert_order,
 	"zorder": zorder_order,
 }
+
+
+def bits_per_pixel(comp_bytes: int, width: int, height: int) -> float:
+	"""Bity na piksel obrazu."""
+
+	return comp_bytes * 8 / (width * height)
+
+
+def compression_ratio(orig_bytes: int, comp_bytes: int) -> float:
+	"""Stosunek rozmiaru surowego do skompresowanego."""
+
+	return orig_bytes / comp_bytes
+
+
+def verify_lossless(a: np.ndarray, b: np.ndarray) -> bool:
+	"""Sprawdza, czy rekonstrukcja jest identyczna z oryginalem."""
+
+	return bool(np.array_equal(a, b))
+
+
+def has_tool(name: str) -> bool:
+	"""Czy narzedzie CLI jest dostepne w PATH."""
+
+	return shutil.which(name) is not None
+
+
+def has_module(name: str) -> bool:
+	"""Czy modul Pythona jest importowalny."""
+
+	return importlib.util.find_spec(name) is not None
