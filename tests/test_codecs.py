@@ -39,3 +39,14 @@ def test_jpeg2000_lossless_roundtrip():
         assert os.path.getsize(p) > 0
         back = utils.decode_jpeg2000(p)
         assert utils.verify_lossless(img, back)
+
+
+@pytest.mark.skipif(not utils.has_module("imagecodecs"), reason="brak imagecodecs")
+def test_jpegxl_lossless_roundtrip():
+    img = _small_rgb(seed=3, h=128, w=160)
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "a.jxl")
+        utils.encode_jpegxl(img, p)
+        assert os.path.getsize(p) > 0
+        back = utils.decode_jpegxl(p)
+        assert utils.verify_lossless(img, back)

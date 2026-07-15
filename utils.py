@@ -211,3 +211,22 @@ def decode_jpeg2000(path: str) -> np.ndarray:
 	"""Wczytuje obraz JPEG 2000 jako tablice NumPy."""
 
 	return np.asarray(Image.open(path))
+
+
+def encode_jpegxl(img: np.ndarray, out_path: str) -> None:
+	"""Zapisuje obraz bezstratnie jako JPEG XL (imagecodecs)."""
+
+	import imagecodecs
+
+	data = imagecodecs.jpegxl_encode(img, lossless=True)
+	with open(out_path, "wb") as handle:
+		handle.write(data)
+
+
+def decode_jpegxl(path: str) -> np.ndarray:
+	"""Wczytuje obraz JPEG XL jako tablice NumPy."""
+
+	import imagecodecs
+
+	with open(path, "rb") as handle:
+		return imagecodecs.jpegxl_decode(handle.read())
