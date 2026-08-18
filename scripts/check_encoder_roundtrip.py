@@ -16,7 +16,6 @@ import argparse
 import os
 import shutil
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -27,13 +26,23 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from lossless_bench.config import EncoderConfig, EncodingMode  # noqa: E402
+from lossless_bench.config import (  # noqa: E402
+    CurveType,
+    EncoderConfig,
+    EncodingMode,
+    TilingConfig,
+)
 from lossless_bench.encoders.HEVCEncoder import HEVCEncoder  # noqa: E402
 from lossless_bench.encoders.JPEG2000Encoder import JPEG2000Encoder  # noqa: E402
 from lossless_bench.encoders.JPEGXLEncoder import JPEGXLEncoder  # noqa: E402
 from lossless_bench.encoders.VVCEncoder import VVCEncoder  # noqa: E402
 from lossless_bench.image.ImageLoader import ImageLoader  # noqa: E402
 from lossless_bench.image.ImageSaver import ImageSaver  # noqa: E402
+from lossless_bench.metrics.CompressionMetrics import CompressionMetrics  # noqa: E402
+from lossless_bench.metrics.MetricsCalculator import (  # noqa: E402
+    MetricsCalculator,
+    measureDuration,
+)
 from lossless_bench.tiling.HilbertTiler import HilbertTiler  # noqa: E402
 from lossless_bench.tiling.RasterTiler import RasterTiler  # noqa: E402
 from lossless_bench.tiling.Tiler import Tile  # noqa: E402
@@ -47,8 +56,11 @@ ENCODER_NAMES = ("hevc", "vvc", "jpeg2000", "jpegxl")
 # approximation and small per-pixel differences are expected, not a failure.
 NEAR_LOSSLESS_ENCODERS = {"vvc"}
 
-# Only these files belong to the bitstream; the VVC manifest does not.
-BITSTREAM_SUFFIXES = {".265", ".266", ".jp2", ".j2k", ".jxl"}
+CURVE_BY_TILER = {
+    "raster": CurveType.RASTER,
+    "hilbert": CurveType.HILBERT,
+    "zorder": CurveType.Z_ORDER,
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,6 +145,19 @@ def make_tiler(name: str, tile_width: int, tile_height: int):
     raise ValueError(f"Unsupported tiler: {name}")
 
 
+def make_tiling_config(args: argparse.Namespace) -> TilingConfig | None:
+    """Describes the tiling used, or None when the whole image is encoded at once."""
+
+    if EncodingMode(args.mode) is EncodingMode.FULL_IMAGE:
+        return None
+
+    return TilingConfig(
+        tile_width=args.tile_width,
+        tile_height=args.tile_height,
+        curve=CURVE_BY_TILER[args.tiler],
+    )
+
+
 def make_encoder(name: str, args: argparse.Namespace):
     mode = EncodingMode(args.mode)
     if name == "hevc":
@@ -162,18 +187,6 @@ def parse_crop(value: str | None) -> tuple[int, int] | None:
     if width <= 0 or height <= 0:
         raise ValueError("--crop width and height must be greater than 0")
     return width, height
-
-
-def bitstream_bytes(path: Path) -> int:
-    """Total size of the bitstream, excluding sidecar files such as meta.json."""
-
-    if path.is_file():
-        return path.stat().st_size
-    return sum(
-        item.stat().st_size
-        for item in path.rglob("*")
-        if item.is_file() and item.suffix.lower() in BITSTREAM_SUFFIXES
-    )
 
 
 def encode_source(image: np.ndarray, args: argparse.Namespace, work_dir: Path):
@@ -213,7 +226,9 @@ def restore_image(
     return tiler.mergeTiles(restored_tiles, original_shape)
 
 
-def run_encoder(name: str, image: np.ndarray, args: argparse.Namespace) -> dict:
+def run_encoder(
+    name: str, image: np.ndarray, args: argparse.Namespace
+) -> CompressionMetrics:
     work_dir = args.output_dir / name
     if work_dir.exists():
         shutil.rmtree(work_dir)
@@ -222,35 +237,28 @@ def run_encoder(name: str, image: np.ndarray, args: argparse.Namespace) -> dict:
     encoder = make_encoder(name, args)
     source, tiling = encode_source(image, args, work_dir)
 
-    started = time.perf_counter()
-    bitstream = encoder.encode(source, work_dir / "bitstream")
-    encode_time = time.perf_counter() - started
+    with measureDuration() as encode_duration:
+        bitstream = encoder.encode(source, work_dir / "bitstream")
 
-    started = time.perf_counter()
-    decoded_dir = encoder.decode(bitstream, work_dir / "decoded")
-    decode_time = time.perf_counter() - started
+    with measureDuration() as decode_duration:
+        decoded_dir = encoder.decode(bitstream, work_dir / "decoded")
 
     restored = restore_image(decoded_dir, tiling, image.shape)
     if args.save_reconstruction:
         ImageSaver().saveImage(restored, work_dir / "reconstructed.png")
 
-    difference = np.abs(image.astype(np.int32) - restored.astype(np.int32))
-    compressed_bytes = bitstream_bytes(bitstream)
-    pixels = image.shape[0] * image.shape[1]
-
-    return {
-        "encoder": encoder.getName(),
-        "tiles": len(tiling[1]) if tiling is not None else 1,
-        "compressed_bytes": compressed_bytes,
-        "bpp": compressed_bytes * 8 / pixels,
-        "ratio": image.size / compressed_bytes,
-        "encode_time": encode_time,
-        "decode_time": decode_time,
-        "is_lossless": bool(np.array_equal(image, restored)),
-        "max_diff": int(difference.max()),
-        "mean_diff": float(difference.mean()),
-        "bitstream": bitstream,
-    }
+    calculator = MetricsCalculator()
+    return calculator.measureCompression(
+        original=image,
+        restored=restored,
+        compressedBytes=calculator.measureBitstreamBytes(bitstream),
+        encodeTime=encode_duration.seconds,
+        decodeTime=decode_duration.seconds,
+        imagePath=args.image,
+        encoderName=encoder.getName(),
+        tilingConfig=make_tiling_config(args),
+        tileCount=len(tiling[1]) if tiling is not None else 1,
+    )
 
 
 def main() -> int:
@@ -290,25 +298,25 @@ def main() -> int:
     failures: list[str] = []
     for name in encoder_names:
         try:
-            result = run_encoder(name, image, args)
+            metrics = run_encoder(name, image, args)
         except Exception as error:  # noqa: BLE001 - report and continue with the next codec
             print(f"{name:<34} {'-':>6} {'-':>11} {'-':>7} {'-':>7} {'-':>7} {'-':>7}  ERROR")
             print(f"    {type(error).__name__}: {error}")
             failures.append(name)
             continue
 
-        if result["is_lossless"]:
+        if metrics.is_lossless:
             verdict = "LOSSLESS"
         elif name in NEAR_LOSSLESS_ENCODERS:
-            verdict = f"near-lossless (max {result['max_diff']}, mean {result['mean_diff']:.4f})"
+            verdict = f"near-lossless (max {metrics.max_diff}, mean {metrics.mean_diff:.4f})"
         else:
-            verdict = f"MISMATCH (max {result['max_diff']}, mean {result['mean_diff']:.4f})"
+            verdict = f"MISMATCH (max {metrics.max_diff}, mean {metrics.mean_diff:.4f})"
             failures.append(name)
 
         print(
-            f"{result['encoder']:<34} {result['tiles']:>6} {result['compressed_bytes']:>11} "
-            f"{result['bpp']:>7.3f} {result['ratio']:>6.2f}x {result['encode_time']:>7.2f} "
-            f"{result['decode_time']:>7.2f}  {verdict}"
+            f"{metrics.encoder_name:<34} {metrics.tile_count:>6} {metrics.compressed_bytes:>11} "
+            f"{metrics.bpp:>7.3f} {metrics.ratio:>6.2f}x {metrics.encode_time_s:>7.2f} "
+            f"{metrics.decode_time_s:>7.2f}  {verdict}"
         )
 
     print()
