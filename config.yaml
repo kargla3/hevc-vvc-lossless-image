@@ -3,7 +3,7 @@
 
 image_paths:
   - data/input/clic-dataset/val2017/test/aaron-greenwood-x9zy_1oHjqw-unsplash.png
-  - data/input/clic-dataset/val2017/test/abhas-mishra-BD3qGeorAFY-unsplash.png
+  # - data/input/clic-dataset/val2017/test/abhas-mishra-BD3qGeorAFY-unsplash.png
 
 encoder_configs:
   - codec: hevc
@@ -11,7 +11,17 @@ encoder_configs:
     preset: medium
     extra_params:
       lossless: 1
-  - codec: vvc
+  # - codec: vvc
+  #   mode: inter
+  #   preset: medium
+  #   extra_params:
+  #     lossless: 1
+  - codec: jpeg2000
+    mode: inter
+    preset: medium
+    extra_params:
+      lossless: 1
+  - codec: jpegxl
     mode: inter
     preset: medium
     extra_params:

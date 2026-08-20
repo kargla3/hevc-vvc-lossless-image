@@ -9,13 +9,14 @@ from pathlib import Path
 
 import yaml
 
-
 kRootDir = Path(__file__).resolve().parents[1]
 kSrcDir = kRootDir / "src"
 if str(kSrcDir) not in sys.path:
 	sys.path.insert(0, str(kSrcDir))
 
+from lossless_bench.runner import BenchmarkRunner  # noqa: E402
 from lossless_bench.config import BenchmarkConfig  # noqa: E402
+from lossless_bench.metrics.ResultsExporter import ResultsExporter  # noqa: E402
 
 
 kSupportedConfigSuffixes = {".json", ".yaml", ".yml"}
@@ -30,6 +31,11 @@ def buildParser() -> argparse.ArgumentParser:
 		type=Path,
 		required=True,
 		help="Ścieżka do pliku konfiguracyjnego JSON.",
+	)
+	parser.add_argument(
+		"--no-plots",
+		action="store_true",
+		help="Nie generuj wykresów PNG.",
 	)
 	return parser
 
@@ -71,7 +77,35 @@ def main() -> int:
 	print(f"Liczba konfiguracji tilingu: {len(benchmarkConfig.tiling_configs)}")
 	print(f"Katalog wyjściowy: {benchmarkConfig.output_dir}")
 
-	return 0
+	runner = BenchmarkRunner(benchmarkConfig)
+	results = runner.runAll()
+	reportDirectory = benchmarkConfig.output_dir / "report"
+	exporter = ResultsExporter()
+	if args.no_plots:
+		exporter.toCsv(results, reportDirectory / "results.csv")
+		exporter.toJson(results, reportDirectory / "results.json")
+		exporter.toFailuresJson(runner.failures, reportDirectory / "failures.json")
+		exporter.toSummary(results, runner.failures, reportDirectory / "summary.md")
+	else:
+		exporter.exportAll(results, reportDirectory, failures=runner.failures)
+
+	print()
+	print(f"Zakonczone eksperymenty: {len(results)}")
+	print(f"Nieudane eksperymenty: {len(runner.failures)}")
+	for result in results:
+		status = "LOSSLESS" if result.is_lossless else (
+			"NEAR-LOSSLESS" if result.max_diff <= 1 else "MISMATCH"
+		)
+		print(
+			f"{status:13} {result.encoder_name:35} "
+			f"{result.image_path.name:30} bpp={result.bpp:.3f} "
+			f"ratio={result.ratio:.3f}x encode={result.encode_time_s:.2f}s"
+		)
+	for failure in runner.failures:
+		print(f"ERROR         {failure.experiment}: {failure.error}")
+	print(f"Raport: {reportDirectory}")
+
+	return 1 if runner.failures else 0
 
 
 if __name__ == "__main__":
